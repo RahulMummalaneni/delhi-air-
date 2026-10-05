@@ -74,15 +74,16 @@ export default function BreathMap() {
       )
 
       // Fetch central breaths from configured endpoint (Google Sheets / Apps Script JSON)
-      if (ENDPOINT) {
+      const seenRemote = new Set()
+      async function fetchRemote() {
+        if (!ENDPOINT) return
         try {
-          const res = await fetch(ENDPOINT)
+          const endpoint = process.env.NEXT_PUBLIC_SUPABASE === '1' ? '/api/breaths' : ENDPOINT
+          const res = await fetch(endpoint)
           const json = await res.json()
-          // json may be an array of records or an object with a `rows`/`data` field
           const records = Array.isArray(json) ? json : Array.isArray(json.rows) ? json.rows : json.data || []
-          remoteCount = records.length
+          // add new records only
           records.forEach((r) => {
-            // try common field names
             const lat = r.lat || r.latitude || r.Lat || r.Latitude
             const lng = r.lng || r.lon || r.lng || r.longitude || r.Longitude
             let pos
@@ -93,12 +94,61 @@ export default function BreathMap() {
               pos = locate(loc)
             }
             const text = r.text || r.story || r.name || r.place || (r.location || '')
+            const id = r.id || r._id || r.ts || r.timestamp || `${pos[0]}_${pos[1]}_${String(text || '').slice(0,50)}`
+            if (seenRemote.has(id)) return
+            seenRemote.add(id)
             const pop = document.createElement('div')
             pop.textContent = text || 'Breath added'
             L.marker(pos, { icon: icon('new') }).addTo(map).bindPopup(pop)
           })
+          remoteCount = records.length
+          updateTotals()
         } catch (err) {
-          remoteCount = 0
+          // ignore endpoint errors
+        }
+      }
+
+      // initial fetch + polling every 15s
+      await fetchRemote()
+      const pollId = setInterval(fetchRemote, 15000)
+
+      // Realtime subscription via Supabase (instant updates for inserts)
+      let realtimeChannel
+      if (
+        process.env.NEXT_PUBLIC_SUPABASE === '1' &&
+        process.env.NEXT_PUBLIC_SUPABASE_URL &&
+        process.env.NEXT_PUBLIC_SUPABASE_ANON
+      ) {
+        try {
+          const { createClient } = await import('@supabase/supabase-js')
+          const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_ANON)
+          realtimeChannel = supabase
+            .channel('public:breaths')
+            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'breaths' }, (payload) => {
+              try {
+                const r = payload.new || payload.record || {}
+                const lat = r.lat || r.latitude || r.Lat || r.Latitude
+                const lng = r.lng || r.lon || r.lng || r.longitude || r.Longitude
+                let pos
+                if (Array.isArray(r.pos) && r.pos.length >= 2) pos = r.pos
+                else if (lat && lng) pos = [Number(lat), Number(lng)]
+                else pos = locate(r.location || r.place || r.text || r.name || '')
+                const text = r.text || r.story || r.name || r.place || (r.location || '')
+                const id = r.id || r._id || r.ts || r.timestamp || `${pos[0]}_${pos[1]}_${String(text || '').slice(0,50)}`
+                if (seenRemote.has(id)) return
+                seenRemote.add(id)
+                const pop = document.createElement('div')
+                pop.textContent = text || 'Breath added'
+                L.marker(pos, { icon: icon('new') }).addTo(map).bindPopup(pop)
+                remoteCount = (remoteCount || 0) + 1
+                updateTotals()
+              } catch (e) {
+                // ignore
+              }
+            })
+            .subscribe()
+        } catch (err) {
+          // ignore realtime setup errors
         }
       }
 

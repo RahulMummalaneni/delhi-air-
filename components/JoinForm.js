@@ -38,7 +38,18 @@ export default function JoinForm({ onAdd }) {
     try {
       if (!data.get('website')) {
         // honeypot empty => real visitor
-        if (ENDPOINT) {
+        if (process.env.NEXT_PUBLIC_SUPABASE === '1') {
+          // POST to our Next API route which writes to Supabase server-side
+          await fetch('/api/breaths', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+            name,
+            location,
+            role: data.get('role'),
+            story: data.get('story'),
+            contact: data.get('contact'),
+            pos: locate(location),
+            text: `Breath added from ${location} by ${name}`,
+          }) })
+        } else if (ENDPOINT) {
           await fetch(ENDPOINT, { method: 'POST', mode: 'no-cors', body: new URLSearchParams(data) })
         } else {
           await new Promise((r) => setTimeout(r, 900)) // demo mode
