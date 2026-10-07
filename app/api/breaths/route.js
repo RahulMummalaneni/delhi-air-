@@ -1,17 +1,27 @@
-import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
+import { getBreathsCollection } from './db'
 
-const SUPABASE_URL = process.env.SUPABASE_URL
-const SUPABASE_KEY = process.env.SUPABASE_KEY
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
+export const dynamic = 'force-dynamic'
+
+function logDatabaseError(operation, error) {
+  const message = String(error?.message || error).replace(/mongodb(?:\+srv)?:\/\/[^@\s]+@/g, 'mongodb+srv://[redacted]@')
+  console.error(`MongoDB ${operation} failed:`, error?.name || 'Error', message)
+}
 
 export async function GET() {
   try {
-    const { data, error } = await supabase.from('breaths').select('*').order('ts', { ascending: false }).limit(1000)
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-    return NextResponse.json(data)
-  } catch (err) {
-    return NextResponse.json({ error: String(err) }, { status: 500 })
+    const collection = await getBreathsCollection()
+    const [records, count] = await Promise.all([
+      collection.find({}, { projection: { location: 1, lat: 1, lng: 1, text: 1, ts: 1 } }).sort({ ts: -1 }).toArray(),
+      collection.countDocuments(),
+    ])
+    return NextResponse.json({
+      records: records.map((record) => ({ ...record, _id: String(record._id) })),
+      count,
+    })
+  } catch (error) {
+    logDatabaseError('read', error)
+    return NextResponse.json({ error: 'Unable to load saved responses' }, { status: 503 })
   }
 }
 
@@ -30,10 +40,20 @@ export async function POST(req) {
       text: text || null,
       ts: new Date().toISOString(),
     }
-    const { data, error } = await supabase.from('breaths').insert([payload])
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-    return NextResponse.json(data, { status: 201 })
-  } catch (err) {
-    return NextResponse.json({ error: String(err) }, { status: 500 })
+    const collection = await getBreathsCollection()
+    const { insertedId } = await collection.insertOne(payload)
+    const count = await collection.countDocuments()
+    const record = {
+      _id: String(insertedId),
+      location: payload.location,
+      lat: payload.lat,
+      lng: payload.lng,
+      text: payload.text,
+      ts: payload.ts,
+    }
+    return NextResponse.json({ record, count }, { status: 201 })
+  } catch (error) {
+    logDatabaseError('write', error)
+    return NextResponse.json({ error: 'Unable to save response' }, { status: 503 })
   }
 }

@@ -1,9 +1,6 @@
 'use client'
 import { useState } from 'react'
 
-const ENDPOINT = process.env.NEXT_PUBLIC_SHEET_ENDPOINT || ''
-const BASE_COUNT = 10 // markers already on the map
-
 const places = {
   dwarka: [28.5921, 77.046], noida: [28.5355, 77.391], 'greater noida': [28.4744, 77.504],
   gurugram: [28.4595, 77.0266], gurgaon: [28.4595, 77.0266], faridabad: [28.4089, 77.3178],
@@ -24,7 +21,6 @@ function locate(text) {
 export default function JoinForm({ onAdd }) {
   const [status, setStatus] = useState('idle') // idle | sending | done | error
   const [info, setInfo] = useState({ name: '', n: 0 })
-  const [added, setAdded] = useState(0)
 
   async function onSubmit(e) {
     e.preventDefault()
@@ -37,10 +33,10 @@ export default function JoinForm({ onAdd }) {
 
     try {
       if (!data.get('website')) {
-        // honeypot empty => real visitor
-        if (process.env.NEXT_PUBLIC_SUPABASE === '1') {
-          // POST to our Next API route which writes to Supabase server-side
-          await fetch('/api/breaths', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+        const response = await fetch('/api/breaths', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
             name,
             location,
             role: data.get('role'),
@@ -48,45 +44,25 @@ export default function JoinForm({ onAdd }) {
             contact: data.get('contact'),
             pos: locate(location),
             text: `Breath added from ${location} by ${name}`,
-          }) })
-        } else if (ENDPOINT) {
-          await fetch(ENDPOINT, { method: 'POST', mode: 'no-cors', body: new URLSearchParams(data) })
-        } else {
-          await new Promise((r) => setTimeout(r, 900)) // demo mode
+          }),
+        })
+        if (!response.ok) throw new Error('Unable to save breath')
+        const saved = await response.json()
+        const record = saved.record || (Array.isArray(saved) ? saved[0] : null)
+        if (!record) throw new Error('The saved response was not returned by the server')
+        let count = saved.count
+        if (!Number.isFinite(count)) {
+          const countResponse = await fetch('/api/breaths')
+          const current = await countResponse.json()
+          count = Number.isFinite(current.count) ? current.count : Array.isArray(current) ? current.length : 0
         }
-        const detail = { pos: locate(location), text: `Breath added from ${location} by ${name}` }
-        try {
-          const saved = JSON.parse(window.localStorage.getItem('breaths:custom') || '[]')
-          saved.push({ pos: detail.pos, text: detail.text, ts: Date.now() })
-          window.localStorage.setItem('breaths:custom', JSON.stringify(saved))
-        } catch (err) {
-          // ignore localStorage errors
-        }
+        const detail = { record, count }
         if (typeof onAdd === 'function') {
           onAdd(detail)
         } else {
           window.dispatchEvent(new CustomEvent('breath:add', { detail }))
         }
-        setAdded((a) => a + 1)
-      }
-
-      // Compute total count: base + persisted local + remote (if available)
-      try {
-        const localSaved = JSON.parse(window.localStorage.getItem('breaths:custom') || '[]').length
-        let remoteCount = 0
-        if (ENDPOINT) {
-          try {
-            const r = await fetch(ENDPOINT)
-            const j = await r.json()
-            const records = Array.isArray(j) ? j : Array.isArray(j.rows) ? j.rows : j.data || []
-            remoteCount = records.length
-          } catch (e) {
-            remoteCount = 0
-          }
-        }
-        setInfo({ name, n: BASE_COUNT + localSaved + remoteCount })
-      } catch (err) {
-        setInfo({ name, n: BASE_COUNT + added + 1 })
+        setInfo({ name, n: count })
       }
       setStatus('done')
       form.reset()
@@ -139,12 +115,6 @@ export default function JoinForm({ onAdd }) {
         )}
         {status === 'error' && 'Something went wrong. Please check your connection and try again.'}
       </div>
-
-      {!ENDPOINT && (
-        <div style={{ fontSize: 12, color: '#5e6668', marginTop: 10 }}>
-          Demo mode: set NEXT_PUBLIC_SHEET_ENDPOINT to save responses to Google Sheets.
-        </div>
-      )}
     </form>
   )
 }

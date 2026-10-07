@@ -2,8 +2,6 @@
 import { useEffect } from 'react'
 import 'leaflet/dist/leaflet.css'
 
-const ENDPOINT = process.env.NEXT_PUBLIC_SHEET_ENDPOINT || ''
-
 const places = {
   dwarka: [28.5921, 77.046], noida: [28.5355, 77.391], 'greater noida': [28.4744, 77.504],
   gurugram: [28.4595, 77.0266], gurgaon: [28.4595, 77.0266], faridabad: [28.4089, 77.3178],
@@ -21,33 +19,18 @@ function locate(text) {
   return [base[0] + j(), base[1] + j()]
 }
 
-const breaths = [
-  [28.6139, 77.209, 'Delhi'],
-  [28.621, 77.088, 'Dwarka'],
-  [28.5494, 77.2001, 'South Delhi'],
-  [28.7041, 77.1025, 'North Delhi'],
-  [28.5355, 77.391, 'Noida'],
-  [28.567, 77.321, 'Noida Extension'],
-  [28.4595, 77.0266, 'Gurugram'],
-  [28.4089, 77.3178, 'Faridabad'],
-  [28.6692, 77.4538, 'Ghaziabad'],
-  [28.9845, 77.7064, 'Meerut road corridor'],
-]
-
 export default function BreathMap() {
   useEffect(() => {
     let map
     let cancelled = false
     let onAdd
+    let pollId
     const timers = []
     let remoteCount = 0
-    let localCount = 0
-    const baseCount = breaths.length
 
     function updateTotals() {
-      const total = baseCount + (remoteCount || 0) + (localCount || 0)
       const el = document.getElementById('total-count')
-      if (el) el.textContent = String(total).toLocaleString('en-US')
+      if (el) el.textContent = String(remoteCount).toLocaleString('en-US')
     }
 
     ;(async () => {
@@ -64,44 +47,33 @@ export default function BreathMap() {
       const icon = (cls = '') =>
         L.divIcon({
           className: '',
-          html: `<div class="lung-icon ${cls}">🫁</div>`,
-          iconSize: [28, 28],
-          iconAnchor: [14, 14],
+          html: `<div class="lung-icon ${cls}"><span aria-hidden="true">🫁</span><span class="lung-heart" aria-hidden="true">♥</span></div>`,
+          iconSize: [38, 38],
+          iconAnchor: [19, 19],
         })
 
-      breaths.forEach(([lat, lng, place]) =>
-        L.marker([lat, lng], { icon: icon() }).addTo(map).bindPopup('Breath added from ' + place)
-      )
-
-      // Fetch central breaths from configured endpoint (Google Sheets / Apps Script JSON)
       const seenRemote = new Set()
+      function addRemoteMarker(record) {
+        if (!record || typeof record !== 'object') return null
+        const lat = Number(record.lat ?? record.latitude ?? record.pos?.[0])
+        const lng = Number(record.lng ?? record.longitude ?? record.pos?.[1])
+        const pos = Number.isFinite(lat) && Number.isFinite(lng) ? [lat, lng] : locate(record.location || '')
+        const id = String(record._id || record.id || record.ts || `${pos[0]}_${pos[1]}`)
+        if (seenRemote.has(id)) return null
+        seenRemote.add(id)
+        const pop = document.createElement('div')
+        pop.textContent = record.text || `Breath added from ${record.location || 'Delhi NCR'}`
+        return L.marker(pos, { icon: icon('new') }).addTo(map).bindPopup(pop)
+      }
+
       async function fetchRemote() {
-        if (!ENDPOINT) return
         try {
-          const endpoint = process.env.NEXT_PUBLIC_SUPABASE === '1' ? '/api/breaths' : ENDPOINT
-          const res = await fetch(endpoint)
+          const res = await fetch('/api/breaths')
           const json = await res.json()
-          const records = Array.isArray(json) ? json : Array.isArray(json.rows) ? json.rows : json.data || []
-          // add new records only
-          records.forEach((r) => {
-            const lat = r.lat || r.latitude || r.Lat || r.Latitude
-            const lng = r.lng || r.lon || r.lng || r.longitude || r.Longitude
-            let pos
-            if (Array.isArray(r.pos) && r.pos.length >= 2) pos = r.pos
-            else if (lat && lng) pos = [Number(lat), Number(lng)]
-            else {
-              const loc = r.location || r.place || r.city || r.text || r.name || r.location_raw || ''
-              pos = locate(loc)
-            }
-            const text = r.text || r.story || r.name || r.place || (r.location || '')
-            const id = r.id || r._id || r.ts || r.timestamp || `${pos[0]}_${pos[1]}_${String(text || '').slice(0,50)}`
-            if (seenRemote.has(id)) return
-            seenRemote.add(id)
-            const pop = document.createElement('div')
-            pop.textContent = text || 'Breath added'
-            L.marker(pos, { icon: icon('new') }).addTo(map).bindPopup(pop)
-          })
-          remoteCount = records.length
+          if (!res.ok) throw new Error('Unable to load saved breaths')
+          const records = Array.isArray(json) ? json : Array.isArray(json.records) ? json.records : []
+          records.forEach(addRemoteMarker)
+          remoteCount = Number.isFinite(json.count) ? json.count : records.length
           updateTotals()
         } catch (err) {
           // ignore endpoint errors
@@ -110,83 +82,24 @@ export default function BreathMap() {
 
       // initial fetch + polling every 15s
       await fetchRemote()
-      const pollId = setInterval(fetchRemote, 15000)
-
-      // Realtime subscription via Supabase (instant updates for inserts)
-      let realtimeChannel
-      if (
-        process.env.NEXT_PUBLIC_SUPABASE === '1' &&
-        process.env.NEXT_PUBLIC_SUPABASE_URL &&
-        process.env.NEXT_PUBLIC_SUPABASE_ANON
-      ) {
-        try {
-          const { createClient } = await import('@supabase/supabase-js')
-          const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_ANON)
-          realtimeChannel = supabase
-            .channel('public:breaths')
-            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'breaths' }, (payload) => {
-              try {
-                const r = payload.new || payload.record || {}
-                const lat = r.lat || r.latitude || r.Lat || r.Latitude
-                const lng = r.lng || r.lon || r.lng || r.longitude || r.Longitude
-                let pos
-                if (Array.isArray(r.pos) && r.pos.length >= 2) pos = r.pos
-                else if (lat && lng) pos = [Number(lat), Number(lng)]
-                else pos = locate(r.location || r.place || r.text || r.name || '')
-                const text = r.text || r.story || r.name || r.place || (r.location || '')
-                const id = r.id || r._id || r.ts || r.timestamp || `${pos[0]}_${pos[1]}_${String(text || '').slice(0,50)}`
-                if (seenRemote.has(id)) return
-                seenRemote.add(id)
-                const pop = document.createElement('div')
-                pop.textContent = text || 'Breath added'
-                L.marker(pos, { icon: icon('new') }).addTo(map).bindPopup(pop)
-                remoteCount = (remoteCount || 0) + 1
-                updateTotals()
-              } catch (e) {
-                // ignore
-              }
-            })
-            .subscribe()
-        } catch (err) {
-          // ignore realtime setup errors
-        }
-      }
+      pollId = setInterval(fetchRemote, 15000)
 
       // Scroll-zoom only after clicking the map
       map.on('click', () => map.scrollWheelZoom.enable())
       map.getContainer().addEventListener('mouseleave', () => map.scrollWheelZoom.disable())
 
-      // Load persisted custom breaths from localStorage
-      try {
-        const saved = JSON.parse(window.localStorage.getItem('breaths:custom') || '[]')
-        localCount = saved.length
-        saved.forEach(({ pos, text }) => {
-          const pop = document.createElement('div')
-          pop.textContent = text
-          L.marker(pos, { icon: icon('new') }).addTo(map).bindPopup(pop)
-        })
-      } catch (err) {
-        localCount = 0
-      }
-
-      // Update the displayed totals now that we've loaded all sources
       updateTotals()
 
       // New breaths from the form
       onAdd = (e) => {
-        const { pos, text } = e.detail
-        const pop = document.createElement('div')
-        pop.textContent = text // textContent: user input is never parsed as HTML
-        const m = L.marker(pos, { icon: icon('new') }).addTo(map).bindPopup(pop)
-        map.flyTo(pos, 11, { duration: reduced ? 0 : 1.6 })
-        timers.push(setTimeout(() => m.openPopup(), reduced ? 0 : 1700))
-        try {
-          const saved = JSON.parse(window.localStorage.getItem('breaths:custom') || '[]')
-          localCount = saved.length
-        } catch (err) {
-          // ignore
-        }
+        const detail = e.detail || {}
+        const record = detail.record || detail
+        const marker = addRemoteMarker(record)
+        remoteCount = Number.isFinite(detail.count) ? detail.count : remoteCount + 1
         updateTotals()
+        const pos = marker?.getLatLng() || locate(record.location || '')
+        map.flyTo(pos, 11, { duration: reduced ? 0 : 1.6 })
+        if (marker) timers.push(setTimeout(() => marker.openPopup(), reduced ? 0 : 1700))
       }
       window.addEventListener('breath:add', onAdd)
     })()
@@ -194,6 +107,7 @@ export default function BreathMap() {
     return () => {
       cancelled = true
       timers.forEach(clearTimeout)
+      if (pollId) clearInterval(pollId)
       if (onAdd) window.removeEventListener('breath:add', onAdd)
       if (map) map.remove()
     }

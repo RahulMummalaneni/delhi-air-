@@ -4,33 +4,19 @@
     npm run dev        # http://localhost:3000
     npm run build && npm start
 
-## Google Sheets
-Responses post to a Google Apps Script web app. The URL is set in `.env.local`:
+## MongoDB
 
-    NEXT_PUBLIC_SHEET_ENDPOINT=https://script.google.com/macros/s/.../exec
-
-On Vercel/Netlify add the same variable under Environment Variables, then redeploy.
-Leave it empty to run in demo mode (nothing is saved).
-
-## Supabase integration
-
-To enable centralized persistence with Supabase:
-
-1. Create a Supabase project at https://app.supabase.com.
-2. Create a table `breaths` with columns: `id` (uuid, primary), `name` (text), `location` (text), `role` (text), `story` (text), `contact` (text), `lat` (float8), `lng` (float8), `text` (text), `ts` (timestamp).
-3. In your project, set the following environment variables (for local dev, put in `.env.local`):
+Centralized responses are stored in the `breaths` collection. Set these environment variables in `.env.local`:
 
 ```
-SUPABASE_URL=https://your-project-ref.supabase.co
-SUPABASE_KEY=your-service-role-or-anon-key
-NEXT_PUBLIC_SUPABASE=1
+MONGODB_URI=mongodb+srv://<db_user>:<db_password>@delhiair.khdtul1.mongodb.net/
+MONGODB_DB=delhi_air
 ```
 
-4. Deploy the app. The client will POST to `/api/breaths` which uses the server-side Supabase key to write records.
+Replace `<db_password>` with the database user's password. Keep `MONGODB_URI` server-side; do not prefix it with `NEXT_PUBLIC_`. The database and collection are created automatically when the first response is saved.
 
-Notes:
-- Use a service role key for the server if you want full insert permissions server-side. Do NOT expose service role keys to the browser.
-- The server API route at `/api/breaths` reads/writes records and the frontend polls it every 15s for new records.
+Add the same variables to your Netlify environment settings and redeploy. The form writes through `/api/breaths`, and the map polls that route every 15 seconds.
+
 ## Structure
 - `app/page.js` — all page content (server component)
 - `app/globals.css` — original design + interaction styles
