@@ -71,7 +71,7 @@ export default function BreathMap() {
           const res = await fetch('/api/breaths')
           const json = await res.json()
           if (!res.ok) throw new Error('Unable to load saved breaths')
-          const records = Array.isArray(json) ? json : Array.isArray(json.records) ? json.records : []
+          const records = Array.isArray(json.records) ? json.records : Array.isArray(json) ? json : []
           records.forEach(addRemoteMarker)
           remoteCount = Number.isFinite(json.count) ? json.count : records.length
           updateTotals()

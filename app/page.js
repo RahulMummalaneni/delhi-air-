@@ -102,11 +102,11 @@ export default function Home() {
             <div className="breath-map-wrap">
               <div className="breath-stats">
                 <div className="stat-box">
-                  <div id="total-count" className="stat-number" data-count="10000">10,000</div>
-                  <div className="stat-label">people who have submitted a response</div>
+                  <div id="total-count" className="stat-number stat-highlight" data-count="10000">10,000</div>
+                  <div className="stat-label">breaths this project aims to hear from</div>
                 </div>
                 <div className="stat-box">
-                  <div className="stat-number">Delhi NCR</div>
+                  <div className="stat-number stat-highlight">Delhi NCR</div>
                   <div className="stat-label">one region, thousands of lived experiences</div>
                 </div>
                 <p className="small" style={{ marginTop: 18 }}>

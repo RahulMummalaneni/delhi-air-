@@ -12,7 +12,7 @@ export async function GET() {
   try {
     const collection = await getBreathsCollection()
     const [records, count] = await Promise.all([
-      collection.find({}, { projection: { location: 1, lat: 1, lng: 1, text: 1, ts: 1 } }).sort({ ts: -1 }).toArray(),
+      collection.find({}, { projection: { location: 1, lat: 1, lng: 1, text: 1, ts: 1 } }).sort({ ts: -1 }).limit(1000).toArray(),
       collection.countDocuments(),
     ])
     return NextResponse.json({
@@ -29,6 +29,7 @@ export async function POST(req) {
   try {
     const body = await req.json()
     const { name, location, role, story, contact, pos, text } = body
+
     const payload = {
       name: name || null,
       location: location || null,
@@ -39,7 +40,9 @@ export async function POST(req) {
       lng: Array.isArray(pos) ? pos[1] : null,
       text: text || null,
       ts: new Date().toISOString(),
+      createdAt: new Date(),
     }
+
     const collection = await getBreathsCollection()
     const { insertedId } = await collection.insertOne(payload)
     const count = await collection.countDocuments()

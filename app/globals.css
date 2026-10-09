@@ -62,11 +62,12 @@ h3{font-size:22px;margin:0 0 10px}
 
 /* breath map */
 .breath-map-wrap{display:grid;grid-template-columns:.72fr 1.28fr;gap:22px;align-items:stretch}
-.breath-stats{background:var(--soft);color:var(--ink);border-radius:20px;padding:26px}
-.stat-box{padding:16px 0;border-bottom:1px solid rgba(0,0,0,.09)}
+.breath-stats{background:#050707;color:#ffffff;border-radius:20px;padding:26px;border:1px solid rgba(255,255,255,.08)}
+.stat-box{padding:16px 0;border-bottom:1px solid rgba(255,255,255,.08)}
 .stat-box:last-of-type{border-bottom:none}
-.stat-number{font-size:48px;line-height:.95;font-weight:900;letter-spacing:-.05em}
-.stat-label{font-size:16px;color:#50595c;margin-top:6px}
+.stat-number{font-size:48px;line-height:.95;font-weight:900;letter-spacing:-.05em;color:#ffffff}
+.stat-highlight{color:var(--accent)}
+.stat-label{font-size:16px;color:#ffffff;margin-top:6px}
 #map{height:420px;border-radius:20px;overflow:hidden;border:1px solid var(--line)}
 .lung-icon{
   position:relative;width:36px;height:36px;border-radius:50%;
